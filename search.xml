@@ -45,7 +45,7 @@
     <url>/2025/01/31/RNN,%20LSTM%20and%20Mamba/</url>
     <content><![CDATA[<h2 id="RNN"><a href="#RNN" class="headerlink" title="RNN"></a>RNN</h2><p>隐状态更新公式：</p>
 <script type="math/tex; mode=display">h_t = \sigma( W_{I} x_t + W_{H} h_{t-1} + b_h )</script><p>输出公式：</p>
-<script type="math/tex; mode=display">y_t = \text{softmax}( W_{Oq} h_t + b_y )</script><p>循环示意图：<br><!-- ![RNN](https://note.youdao.com/yws/api/personal/sync?method=download&fileId=WEB9ee91ecce2e67559927c0da34c8ab97b&version=9&cstk=RBcjc3vE) --></p>
+<script type="math/tex; mode=display">y_t = \text{softmax}( W_{Oq} h_t + b_y )</script><p>循环示意图：</p>
 <img src="/images/rnn.png" class width="300" height="200" title="RNN">
 ]]></content>
   </entry>
