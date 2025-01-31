@@ -5,30 +5,45 @@
     <url>/2025/01/23/Parler-TTS%E5%BE%AE%E8%B0%83/</url>
     <content><![CDATA[<p>本文为 在 local Linux 环境下 fine-tune Parler-TTS模型的流程</p>
 <p>主要参考Parler-TTS自带的fine-tune文档，使用的数据集为单一说话人数据集jenny-tts-6h。</p>
-<h2 id="准备core-代码库"><a href="#准备core-代码库" class="headerlink" title="准备core 代码库"></a>准备core 代码库</h2><p>下载 dataspeech 和 parler-TTS两个代码库，前者负责进行数据预处理，后者进行模型训练和推理。</p>
+<h2 id="准备core-代码库">准备core 代码库</h2>
+<p>下载 dataspeech 和 parler-TTS两个代码库，前者负责进行数据预处理，后者进行模型训练和推理。</p>
 <figure class="highlight python"><table><tr><td class="code"><pre><span class="line">git clone https://github.com/huggingface/dataspeech.git</span><br><span class="line">git clone https://github.com/huggingface/parler-tts.git</span><br></pre></td></tr></table></figure>
 <p>无网络，改为下载后上传到本地，然后解压到指定位置。</p>
-<h2 id="准备数据集"><a href="#准备数据集" class="headerlink" title="准备数据集"></a>准备数据集</h2><p>从huggingface官网下载包含README.md的jenny-tts-6h数据集，解压到指定位置。<br>并将数据文件从parque后缀格式转换为arrow后缀格式，方便之后处理数据。\<br><em>注：jenny-tts-6h是一个包含高质量音频的单一说话人数据集。</em></p>
+<h2 id="准备数据集">准备数据集</h2>
+<p>从huggingface官网下载包含README.md的jenny-tts-6h数据集，解压到指定位置。<br>
+并将数据文件从parque后缀格式转换为arrow后缀格式，方便之后处理数据。<br>
+<em>注：jenny-tts-6h是一个包含高质量音频的单一说话人数据集。</em></p>
 <figure class="highlight python"><table><tr><td class="code"><pre><span class="line"><span class="keyword">from</span> datasets <span class="keyword">import</span> load_dataset</span><br><span class="line">dataset = load_dataset(<span class="string">&quot;your_path/jenny-tts-6h&quot;</span>)</span><br><span class="line">dataset.save_to_disk(<span class="string">&quot;your_path/jenny-tts-6h_disk&quot;</span>)</span><br></pre></td></tr></table></figure>
-<p>此时的数据样本包含以下信息：\<br>文件名、转录文本、转录文本（小写）、音频（地址，数据array，采样率）</p>
-<h2 id="数据预处理"><a href="#数据预处理" class="headerlink" title="数据预处理"></a>数据预处理</h2><p>数据预处理步骤再dataspeech文件夹下完成，一共分为三个步骤，先将当前文件夹定位到<code>dataspeech</code>文件夹下</p>
+<p>此时的数据样本包含以下信息：<br>
+文件名、转录文本、转录文本（小写）、音频（地址，数据array，采样率）</p>
+<h2 id="数据预处理">数据预处理</h2>
+<p>数据预处理步骤再dataspeech文件夹下完成，一共分为三个步骤，先将当前文件夹定位到<code>dataspeech</code>文件夹下</p>
 <figure class="highlight python"><table><tr><td class="code"><pre><span class="line">cd dataspeech</span><br></pre></td></tr></table></figure>
 <p>将<code>main.py</code>中的<code>load_dataset</code>改为<code>load_from_disk</code>，后续文件遇到数据读取操作时同理。</p>
-<h3 id="得到音频的音高、混响等级、信噪比等信息"><a href="#得到音频的音高、混响等级、信噪比等信息" class="headerlink" title="得到音频的音高、混响等级、信噪比等信息"></a>得到音频的音高、混响等级、信噪比等信息</h3><p>下载得到音高估计模型<code>FCN-f0</code>，信噪比和混响估计模型<code>Brouhaha</code>的预训练模型并解压到本地，更改<code>main.py</code>和<code>dataspeech/gpu_enrichments</code>文件夹下代码，使得代码能从本地读取预训练模型。\<br>利用<code>main.py</code>提取音频文件的<strong>pitch, snr, c50</strong>等信息，其中调用<code>dataspeech/cpu_enrichments</code>下的<code>rate.py</code>文件，通过g2p模型将转录文本转换为<strong>音素</strong>，再通过统计方法得到<strong>语速</strong>信息。</p>
+<h3 id="得到音频的音高、混响等级、信噪比等信息">得到音频的音高、混响等级、信噪比等信息</h3>
+<p>下载得到音高估计模型<code>FCN-f0</code>，信噪比和混响估计模型<code>Brouhaha</code>的预训练模型并解压到本地，更改<code>main.py</code>和<code>dataspeech/gpu_enrichments</code>文件夹下代码，使得代码能从本地读取预训练模型。<br>
+利用<code>main.py</code>提取音频文件的<strong>pitch, snr, c50</strong>等信息，其中调用<code>dataspeech/cpu_enrichments</code>下的<code>rate.py</code>文件，通过g2p模型将转录文本转换为<strong>音素</strong>，再通过统计方法得到<strong>语速</strong>信息。</p>
 <figure class="highlight python"><table><tr><td class="code"><pre><span class="line">python main.py <span class="string">&quot;your_path/jenny-tts-6h_disk&quot;</span> \</span><br><span class="line">  --configuration <span class="string">&quot;default&quot;</span> \</span><br><span class="line">  --text_column_name <span class="string">&quot;transcription&quot;</span> \</span><br><span class="line">  --audio_column_name <span class="string">&quot;audio&quot;</span> \</span><br><span class="line">  --cpu_num_workers <span class="number">2</span> \</span><br><span class="line">  --rename_column \</span><br><span class="line">  --output_dir <span class="string">&quot;your_path/jenny-tts-tags-6h-v1&quot;</span> \</span><br><span class="line">  --apply_squim_quality_estimation</span><br></pre></td></tr></table></figure>
 <p>此时的数据样本增加以下信息：语段音高（均值，方差）、snr、c50（混响等级）、说话速度、音素。数据保存至<code>your_path/jenny-tts-tags-6h-v1</code>文件夹下，此时文件保存为disk格式，方便后续处理。</p>
-<h3 id="得到用文本描述的音频信息"><a href="#得到用文本描述的音频信息" class="headerlink" title="得到用文本描述的音频信息"></a>得到用文本描述的音频信息</h3><p>利用<code>metadata_to_text.py</code>文件，通过统计分桶方法，将统计值转换为有限的文本描述。</p>
+<h3 id="得到用文本描述的音频信息">得到用文本描述的音频信息</h3>
+<p>利用<code>metadata_to_text.py</code>文件，通过统计分桶方法，将统计值转换为有限的文本描述。</p>
 <figure class="highlight python"><table><tr><td class="code"><pre><span class="line">python ./scripts/metadata_to_text.py \</span><br><span class="line">    <span class="string">&quot;your_path/jenny-tts-tags-6h-v1&quot;</span> \</span><br><span class="line">    --output_dir <span class="string">&quot;your_path/jenny-tts-text-tags-6h-v1&quot;</span> \</span><br><span class="line">    --configuration <span class="string">&quot;default&quot;</span> \</span><br><span class="line">    --cpu_num_workers <span class="number">2</span> \</span><br><span class="line">    --path_to_bin_edges <span class="string">&quot;./examples/tags_to_annotations/v02_bin_edges.json&quot;</span> \</span><br><span class="line">    --path_to_text_bins <span class="string">&quot;./examples/tags_to_annotations/v02_text_bins.json&quot;</span> \</span><br><span class="line">    --avoid_pitch_computation \</span><br><span class="line">    --apply_squim_quality_estimation</span><br></pre></td></tr></table></figure>
 <p>此时数据数据样本增加以下信息：语速、噪声、混响和语音单调性的文本描述。数据保存至<code>your_path/jenny-tts-text-tags-6h-v1</code>文件夹下，此时文件保存为disk格式，方便后续处理。</p>
-<h3 id="将离散文本转换为连贯的描述性语句"><a href="#将离散文本转换为连贯的描述性语句" class="headerlink" title="将离散文本转换为连贯的描述性语句"></a>将离散文本转换为连贯的描述性语句</h3><p>得到google的轻量级大语言模型<code>gemma-2-2b-it</code>通过<code>run_prompt_creation.py</code>文件，将碎片化的语言描述词语转换为连贯的描述性语句。</p>
+<h3 id="将离散文本转换为连贯的描述性语句">将离散文本转换为连贯的描述性语句</h3>
+<p>得到google的轻量级大语言模型<code>gemma-2-2b-it</code>通过<code>run_prompt_creation.py</code>文件，将碎片化的语言描述词语转换为连贯的描述性语句。</p>
 <figure class="highlight python"><table><tr><td class="code"><pre><span class="line">python ./scripts/run_prompt_creation.py \</span><br><span class="line">  --speaker_name <span class="string">&quot;Jenny&quot;</span> \</span><br><span class="line">  --is_single_speaker \</span><br><span class="line">  --is_new_speaker_prompt \</span><br><span class="line">  --dataset_name <span class="string">&quot;ylacombe/jenny-tts-text-tags-6h-v1&quot;</span> \</span><br><span class="line">  --output_dir <span class="string">&quot;./tmp_jenny&quot;</span> \</span><br><span class="line">  --dataset_config_name <span class="string">&quot;default&quot;</span> \</span><br><span class="line">  --model_name_or_path <span class="string">&quot;google/gemma-2-2b-it&quot;</span> \</span><br><span class="line">  --per_device_eval_batch_size <span class="number">5</span> \</span><br><span class="line">  --attn_implementation <span class="string">&quot;sdpa&quot;</span> \</span><br><span class="line">  --dataloader_num_workers <span class="number">2</span> \</span><br><span class="line">  --preprocessing_num_workers <span class="number">2</span></span><br></pre></td></tr></table></figure>
 <p>此时数据数据样本增加以下信息：连贯的描述性语句。数据保存至<code>your_path/jenny-tts-text-tags-6h-v1</code>文件夹下，此时文件保存为disk格式，方便后续处理。</p>
-<h2 id="模型训练"><a href="#模型训练" class="headerlink" title="模型训练"></a>模型训练</h2><p>将当前文件夹定位到<code>parler-tts</code>文件夹下</p>
+<h2 id="模型训练">模型训练</h2>
+<p>将当前文件夹定位到<code>parler-tts</code>文件夹下</p>
 <figure class="highlight python"><table><tr><td class="code"><pre><span class="line">cd parler-tts</span><br></pre></td></tr></table></figure>
 <p>从huggingface/parler-tts下载得到parler-tts和DAC_44khz预训练模型，使用<code>training/run_parler_tts_training.py</code>进行训练，得到微调后的模型。</p>
 <p>具体为</p>
-<p><strong>1</strong>.  通过<code>Flan-T5</code>模型将描述文本(Description text)和转录文本(Transcript text)映射为hidden states。\<br><strong>2</strong>.  将描述文本的hidden states和由转录文本hidden states作为前缀的hidden states作为输入，通过一个语言模型(LM)，自回归生成音频码本矩阵。\<br><strong>3</strong>.  将输出的码本矩阵和通过<code>DAC_44khz</code>音频自编码器的预训练模型中<code>Encoder</code>生成的音频码本矩阵进行对比学习，得到一个音频模型。\<br><strong>4</strong>.  利用<code>DAC_44khz</code>音频自编码器的预训练模型中的<code>Decoder</code>部分将离散的码本矩阵转换为音频信号。</p>
-<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>  <strong>训练过程分为四个步骤，分别对应上述四个步骤。Parler-TTS模型使用了DAC自编码器和一个高质量的语音数据集， 并且可以在无参考音频的情况下进行训练，利用文本描述和转录文本来生成音频信号。个人理解，在这种情况下进行训练，可以充分利用现有的语言模型，比如项目中使用的gemma-2-2b-it模型，将音频模型转换为语言模型来进行处理。但似乎这样缺少了音频对比学习这一步，相当于在音频标注数据不够情况下的一种妥协，想要进一步提升性能，可能需要更多的音频标注数据。</strong></p>
+<p><strong>1</strong>.  通过<code>Flan-T5</code>模型将描述文本(Description text)和转录文本(Transcript text)映射为hidden states。<br>
+<strong>2</strong>.  将描述文本的hidden states和由转录文本hidden states作为前缀的hidden states作为输入，通过一个语言模型(LM)，自回归生成音频码本矩阵。<br>
+<strong>3</strong>.  将输出的码本矩阵和通过<code>DAC_44khz</code>音频自编码器的预训练模型中<code>Encoder</code>生成的音频码本矩阵进行对比学习，得到一个音频模型。<br>
+<strong>4</strong>.  利用<code>DAC_44khz</code>音频自编码器的预训练模型中的<code>Decoder</code>部分将离散的码本矩阵转换为音频信号。</p>
+<h2 id="总结">总结</h2>
+<p><strong>训练过程分为四个步骤，分别对应上述四个步骤。Parler-TTS模型使用了DAC自编码器和一个高质量的语音数据集， 并且可以在无参考音频的情况下进行训练，利用文本描述和转录文本来生成音频信号。个人理解，在这种情况下进行训练，可以充分利用现有的语言模型，比如项目中使用的gemma-2-2b-it模型，将音频模型转换为语言模型来进行处理。但似乎这样缺少了音频对比学习这一步，相当于在音频标注数据不够情况下的一种妥协，想要进一步提升性能，可能需要更多的音频标注数据。</strong></p>
 ]]></content>
       <categories>
         <category>语音合成</category>
@@ -39,12 +54,5 @@
         <tag>Linux</tag>
         <tag>Local</tag>
       </tags>
-  </entry>
-  <entry>
-    <title>RNN LSTM 和 Mamba</title>
-    <url>/2025/01/31/RNN,%20LSTM%20and%20Mamba/</url>
-    <content><![CDATA[<h2 id="RNN"><a href="#RNN" class="headerlink" title="RNN"></a>RNN</h2><p>隐状态更新公式：<br>$h<em>t = \sigma( W</em>{xh} x<em>t + W</em>{hh} h<em>{t-1} + b_h )$<br>输出公式：<br>$y_t = \text{softmax}( W</em>{hy} h_t + b_y )$</p>
-<p>循环示意图：<br><img src="/.io//rnn.png" alt="RNN"></p>
-]]></content>
   </entry>
 </search>
