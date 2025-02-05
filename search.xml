@@ -1,34 +1,247 @@
 <?xml version="1.0" encoding="utf-8"?>
 <search>
   <entry>
+    <title>RNN LSTM 和 Mamba</title>
+    <url>/2025/01/31/RNN,%20LSTM%20and%20Mamba/</url>
+    <content><![CDATA[<h2 id="前言">前言</h2>
+<p>说到时间序列网络，RNN是一个逃不掉的网络结构，而后续衍生出来的类RNN网络也层出不穷，比如应用最为广泛的LSTM网络。随着Transformer的提出，self-attention结构在nlp,语音信号处理等各种时序任务中展现出的效果逐渐超过了RNN结构。然而在计算复杂度方面，transformer与序列长度成二次关系，类rnn网络则与序列长度成线性关系，因此类rnn结构仍然有其优势。Mamba结构在2023年底被提出，作为一种新的类rnn结构，其旨在保持长程序列建模能力的同时，提升长序列处理效率。Mamba在2024年被广泛使用，并在很多领域取得了不错的效果。</p>
+<p>在介绍今天的主角Mamba架构之前，先介绍一下RNN和LSTM架构，方便后续的对比。</p>
+<h2 id="RNN">RNN</h2>
+<h3 id="公式">公式</h3>
+<p><strong>隐状态更新公式：</strong><br>
+$$h_t = \sigma(x_t W_{I} + b_i + h_{t-1} W_{H}  + b_h )$$<br>
+<strong>输出公式：</strong><br>
+$$y_t = h_t W_{O}  + b_y$$</p>
+<h3 id="示意图及代码">示意图及代码</h3>
+<p><strong>单层rnn示意图:</strong></p>
+<img src="/images/single-rnn.png" class width="500" height="300" title="single-RNN">
+<p><strong>单层rnn代码:</strong></p>
+<figure class="highlight python"><table><tr><td class="code"><pre><span class="line"><span class="keyword">import</span> torch </span><br><span class="line"><span class="keyword">import</span> torch.nn <span class="keyword">as</span> nn</span><br><span class="line"></span><br><span class="line"><span class="keyword">class</span> <span class="title class_">SingleRNN</span>(nn.Module):</span><br><span class="line">    <span class="keyword">def</span> <span class="title function_">__init__</span>(<span class="params">self, input_size, hidden_size, activation=<span class="string">&quot;tanh&quot;</span></span>):</span><br><span class="line">        <span class="built_in">super</span>().__init__()</span><br><span class="line">        <span class="variable language_">self</span>.input_size = input_size</span><br><span class="line">        <span class="variable language_">self</span>.hidden_size = hidden_size</span><br><span class="line"></span><br><span class="line">        <span class="variable language_">self</span>.W_I = nn.Parameter(torch.randn(input_size, hidden_size))</span><br><span class="line">        <span class="variable language_">self</span>.W_H = nn.Parameter(torch.randn(hidden_size, hidden_size))</span><br><span class="line">        <span class="variable language_">self</span>.W_O = nn.Parameter(torch.randn(hidden_size, input_size))</span><br><span class="line"></span><br><span class="line">        <span class="variable language_">self</span>.bias_i = nn.Parameter(torch.randn(hidden_size))</span><br><span class="line">        <span class="variable language_">self</span>.bias_h = nn.Parameter(torch.randn(hidden_size))</span><br><span class="line">        <span class="variable language_">self</span>.bias_y = nn.Parameter(torch.randn(input_size))</span><br><span class="line"></span><br><span class="line">        <span class="variable language_">self</span>.activation = nn.Tanh() <span class="keyword">if</span> activation == <span class="string">&quot;tanh&quot;</span> <span class="keyword">else</span> nn.ReLU()</span><br><span class="line">    </span><br><span class="line">    <span class="keyword">def</span> <span class="title function_">forward</span>(<span class="params">self, x</span>):</span><br><span class="line">        b, seq_len, dim = x.shape</span><br><span class="line">        h_pre = torch.zeros(b, <span class="variable language_">self</span>.hidden_size).to(x.device)</span><br><span class="line">        output = []</span><br><span class="line">        hidden = []</span><br><span class="line">        <span class="keyword">for</span> t <span class="keyword">in</span> <span class="built_in">range</span>(seq_len):</span><br><span class="line">            x_t = x[:, t, :]</span><br><span class="line">            h_t = <span class="variable language_">self</span>.activation(x_t @ <span class="variable language_">self</span>.W_I + <span class="variable language_">self</span>.bias_i + h_pre @ <span class="variable language_">self</span>.W_H + <span class="variable language_">self</span>.bias_h)</span><br><span class="line">            y_t = h_t @ <span class="variable language_">self</span>.W_O + <span class="variable language_">self</span>.bias_y</span><br><span class="line">            h_pre = h_t</span><br><span class="line">            hidden.append(h_t.unsqueeze(<span class="number">1</span>))</span><br><span class="line">            output.append(y_t.unsqueeze(<span class="number">1</span>))</span><br><span class="line">        </span><br><span class="line">        hidden = torch.cat(hidden, dim=<span class="number">1</span>)</span><br><span class="line">        output = torch.cat(output, dim=<span class="number">1</span>)</span><br><span class="line">        <span class="keyword">return</span> hidden, output</span><br></pre></td></tr></table></figure>
+<p><strong>多层rnn示意图：</strong></p>
+<img src="/images/multi-rnn.png" class width="450" height="300" title="multi-RNN">
+<p><strong>多层rnn代码：</strong></p>
+<figure class="highlight python"><table><tr><td class="code"><pre><span class="line"><span class="keyword">import</span> torch</span><br><span class="line"><span class="keyword">import</span> torch.nn <span class="keyword">as</span> nn</span><br><span class="line"><span class="keyword">class</span> <span class="title class_">MultiLayerRNN</span>(nn.Module):</span><br><span class="line">    <span class="keyword">def</span> <span class="title function_">__init__</span>(<span class="params">self, input_size, hidden_size, num_layers</span>):</span><br><span class="line">        <span class="built_in">super</span>().__init__()</span><br><span class="line">        <span class="variable language_">self</span>.input_size = input_size</span><br><span class="line">        <span class="variable language_">self</span>.hidden_size = hidden_size</span><br><span class="line">        <span class="variable language_">self</span>.num_layers = num_layers</span><br><span class="line">        <span class="variable language_">self</span>.rnn = nn.RNN(input_size, hidden_size, num_layers, batch_first=<span class="literal">True</span>)</span><br><span class="line">        <span class="variable language_">self</span>.fc = nn.Linear(hidden_size, input_size)</span><br><span class="line">    </span><br><span class="line">    <span class="keyword">def</span> <span class="title function_">forward</span>(<span class="params">self, x</span>):</span><br><span class="line">        h0 = torch.zeros(<span class="variable language_">self</span>.num_layers, x.size(<span class="number">0</span>), <span class="variable language_">self</span>.hidden_size).to(x.device)</span><br><span class="line">        hidden, _ = <span class="variable language_">self</span>.rnn(x, h0)</span><br><span class="line">        output = <span class="variable language_">self</span>.fc(hidden)</span><br><span class="line">        <span class="keyword">return</span> hidden, output</span><br></pre></td></tr></table></figure>
+<p><strong>双向rnn示意图：</strong></p>
+<img src="/images/Bi-rnn.png" class width="300" height="500" title="bidirectional-RNN">
+<p><strong>双向rnn代码：</strong></p>
+<figure class="highlight python"><table><tr><td class="code"><pre><span class="line"><span class="keyword">import</span> torch</span><br><span class="line"><span class="keyword">import</span> torch.nn <span class="keyword">as</span> nn</span><br><span class="line"><span class="keyword">class</span> <span class="title class_">BiRNN</span>(nn.Module):</span><br><span class="line">    <span class="keyword">def</span> <span class="title function_">__init__</span>(<span class="params">self, input_size, hidden_size, num_layers</span>):</span><br><span class="line">        <span class="built_in">super</span>().__init__()</span><br><span class="line">        <span class="variable language_">self</span>.input_size = input_size</span><br><span class="line">        <span class="variable language_">self</span>.hidden_size = hidden_size</span><br><span class="line">        <span class="variable language_">self</span>.num_layers = num_layers</span><br><span class="line">        <span class="variable language_">self</span>.rnn = nn.RNN(input_size, hidden_size, num_layers, batch_first=<span class="literal">True</span>, bidirectional=<span class="literal">True</span>)</span><br><span class="line">        <span class="variable language_">self</span>.fc = nn.Linear(hidden_size*<span class="number">2</span>, input_size)</span><br><span class="line"></span><br><span class="line">    <span class="keyword">def</span> <span class="title function_">forward</span>(<span class="params">self, x</span>):</span><br><span class="line">        h0 = torch.zeros(<span class="variable language_">self</span>.num_layers*<span class="number">2</span>, x.size(<span class="number">0</span>), <span class="variable language_">self</span>.hidden_size).to(x.device)</span><br><span class="line">        hidden, _ = <span class="variable language_">self</span>.rnn(x, h0)</span><br><span class="line">        output = <span class="variable language_">self</span>.fc(hidden)</span><br><span class="line">        <span class="keyword">return</span> output</span><br></pre></td></tr></table></figure>
+<h3 id="RNN网络会存在的问题">RNN网络会存在的问题</h3>
+<p><strong>1</strong> 梯度消失：递归结构导致梯度在时间上传递，使用tanh或者sigmoid函数时会导致梯度消失，随着时间步增加，梯度消失问题更加严重；<br>
+<strong>2</strong> 长程依赖问题：由于递归结构导致，RNN很难将长时间以前的信息为自己所用。</p>
+<h3 id="RNN模型与Transformer模型的比较">RNN模型与Transformer模型的比较</h3>
+<table>
+<thead>
+<tr>
+<th style="text-align:center">模型</th>
+<th style="text-align:center">RNN</th>
+<th style="text-align:center">Transformer</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:center">优点</td>
+<td style="text-align:center">串行输入输出，先天保持序列顺序，理论上可以处理任意长度的序列，且实时性强；计算复杂度为$O(n)$</td>
+<td style="text-align:center">并行处理序列，模型建模能力强，能有效捕获全局信息，模型规模易扩展</td>
+</tr>
+<tr>
+<td style="text-align:center">局限</td>
+<td style="text-align:center">存在长程依赖问题，信息被过度压缩，模型能力受限；串行结构训练速度受限</td>
+<td style="text-align:center">计算复杂度高$O(n^2)$，位置编码依赖；并行结构推理实时性差</td>
+</tr>
+</tbody>
+</table>
+<h2 id="LSTM">LSTM</h2>
+<h3 id="公式-2">公式</h3>
+<p><strong>遗忘门公式：</strong><br>
+$$f_t = \sigma(x_t W_{if}  + b_if + h_{t-1} W_{hf}  + b_hf)$$<br>
+<strong>输入门公式：</strong><br>
+$$i_t = \sigma(x_t W_{ii} + b_ii + h_{t-1} W_{hi} + b_hi)$$<br>
+<strong>输出门公式：</strong><br>
+$$o_t = \sigma(x_t W_{io} + b_io + h_{t-1} W_{ho} + b_ho)$$<br>
+<strong>cell门公式：</strong><br>
+$$g_t = tanh(x_t W_{ig} + b_ig + h_{t-1} W_{hg} + b_hg)$$<br>
+<strong>cell状态公式：</strong><br>
+$$c_t = i_t \odot g_t + f_t \odot c_{t-1}$$<br>
+<strong>隐状态公式：</strong><br>
+$$h_t = o_t \odot tanh(c_t)$$<br>
+<strong>输出公式：</strong><br>
+$$y_t = h_t W_{O}  + b_y$$</p>
+<h3 id="示意图及代码-2">示意图及代码</h3>
+<p><strong>LSTM示意图：</strong></p>
+<img src="/images/LSTM.png" class width="450" height="300" title="LSTM">
+<p><strong>LSTM代码：</strong></p>
+<figure class="highlight python"><table><tr><td class="code"><pre><span class="line"><span class="keyword">import</span> torch</span><br><span class="line"><span class="keyword">import</span> torch.nn <span class="keyword">as</span> nn</span><br><span class="line"><span class="keyword">class</span> <span class="title class_">LSTM</span>(nn.Module):</span><br><span class="line">    <span class="keyword">def</span> <span class="title function_">__init__</span>(<span class="params">self, input_size, hidden_size</span>):</span><br><span class="line">        <span class="built_in">super</span>().__init__()</span><br><span class="line">        <span class="variable language_">self</span>.input_size = input_size</span><br><span class="line">        <span class="variable language_">self</span>.hidden_size = hidden_size</span><br><span class="line"></span><br><span class="line">        <span class="variable language_">self</span>.w_ii = nn.Parameter(torch.Tensor(input_size, hidden_size))</span><br><span class="line">        <span class="variable language_">self</span>.w_hi = nn.Parameter(torch.Tensor(hidden_size, hidden_size))</span><br><span class="line">        <span class="variable language_">self</span>.w_if = nn.Parameter(torch.Tensor(input_size, hidden_size))</span><br><span class="line">        <span class="variable language_">self</span>.w_hf = nn.Parameter(torch.Tensor(hidden_size, hidden_size))</span><br><span class="line">        <span class="variable language_">self</span>.w_ig = nn.Parameter(torch.Tensor(input_size, hidden_size))</span><br><span class="line">        <span class="variable language_">self</span>.w_hg = nn.Parameter(torch.Tensor(hidden_size, hidden_size))</span><br><span class="line">        <span class="variable language_">self</span>.w_io = nn.Parameter(torch.Tensor(input_size, hidden_size))</span><br><span class="line">        <span class="variable language_">self</span>.w_ho = nn.Parameter(torch.Tensor(hidden_size, hidden_size))</span><br><span class="line">        <span class="variable language_">self</span>.w_y = nn.Parameter(torch.Tensor(hidden_size, input_size))</span><br><span class="line"></span><br><span class="line">        <span class="variable language_">self</span>.b_ii = nn.Parameter(torch.Tensor(hidden_size))</span><br><span class="line">        <span class="variable language_">self</span>.b_hi = nn.Parameter(torch.Tensor(hidden_size))</span><br><span class="line">        <span class="variable language_">self</span>.b_if = nn.Parameter(torch.Tensor(hidden_size))</span><br><span class="line">        <span class="variable language_">self</span>.b_hf = nn.Parameter(torch.Tensor(hidden_size))</span><br><span class="line">        <span class="variable language_">self</span>.b_ig = nn.Parameter(torch.Tensor(hidden_size))</span><br><span class="line">        <span class="variable language_">self</span>.b_hg = nn.Parameter(torch.Tensor(hidden_size))</span><br><span class="line">        <span class="variable language_">self</span>.b_io = nn.Parameter(torch.Tensor(hidden_size))</span><br><span class="line">        <span class="variable language_">self</span>.b_ho = nn.Parameter(torch.Tensor(hidden_size))</span><br><span class="line">        <span class="variable language_">self</span>.b_y = nn.Parameter(torch.Tensor(input_size))</span><br><span class="line"></span><br><span class="line">    <span class="keyword">def</span> <span class="title function_">forward</span>(<span class="params">self, x</span>):</span><br><span class="line">        b, seq_len, dim = x.shape</span><br><span class="line">        h_pre = torch.zeros(b, <span class="variable language_">self</span>.hidden_size).to(x.device)</span><br><span class="line">        c_pre = torch.zeros(b, <span class="variable language_">self</span>.hidden_size).to(x.device)</span><br><span class="line">        output = []</span><br><span class="line">        hidden = []</span><br><span class="line">        <span class="keyword">for</span> t <span class="keyword">in</span> <span class="built_in">range</span>(seq_len):</span><br><span class="line">            x_t = x[:, t, :]</span><br><span class="line">            i_t = torch.sigmoid(x_t @ <span class="variable language_">self</span>.w_ii + <span class="variable language_">self</span>.b_ii + h_pre @ <span class="variable language_">self</span>.w_hi + <span class="variable language_">self</span>.b_hi)</span><br><span class="line">            f_t = torch.sigmoid(x_t @ <span class="variable language_">self</span>.w_if + <span class="variable language_">self</span>.b_if + h_pre @ <span class="variable language_">self</span>.w_hf + <span class="variable language_">self</span>.b_hf)</span><br><span class="line">            o_t = torch.sigmoid(x_t @ <span class="variable language_">self</span>.w_io + <span class="variable language_">self</span>.b_io + h_pre @ <span class="variable language_">self</span>.w_ho + <span class="variable language_">self</span>.b_ho)</span><br><span class="line">            g_t = torch.tanh(x_t @ <span class="variable language_">self</span>.w_ig + <span class="variable language_">self</span>.b_ig + h_pre @ <span class="variable language_">self</span>.w_hg + <span class="variable language_">self</span>.b_hg)</span><br><span class="line">            c_t = f_t * c_pre + i_t * g_t</span><br><span class="line">            h_t = o_t * torch.tanh(c_t)</span><br><span class="line">            c_pre = c_t</span><br><span class="line">            h_pre = h_t</span><br><span class="line">            hidden.append(h_t.unsqueeze(<span class="number">1</span>))</span><br><span class="line">            y_t = h_t @ <span class="variable language_">self</span>.w_y + <span class="variable language_">self</span>.b_y</span><br><span class="line">            output.append(y_t.unsqueeze(<span class="number">1</span>))</span><br><span class="line"></span><br><span class="line">            hidden = torch.cat(hidden, dim=<span class="number">1</span>)</span><br><span class="line">            output = torch.cat(output, dim=<span class="number">1</span>)</span><br><span class="line">            <span class="keyword">return</span> hidden, output</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+<p><strong>多层LSTM和双向LSTM：</strong><br>
+思路同上述多层RNN和双向RNN。</p>
+<h3 id="LSTM的问题">LSTM的问题</h3>
+<p>虽然LSTM缓解了长程依赖问题，但在需要处理超长序列的任务中，LSTM的表现仍不如Transformer。</p>
+<h2 id="Mamba">Mamba</h2>
+<p>Mamba模型的原论文标题是：<em>Mamba:Linear-Time Sequence Modeling with Selective State Spaces</em>，可以看出，Mamba是一种状态空间模型SSM(State Space Model)。要分析Mamba模型，让我们先从拆解SSM开始。</p>
+<h3 id="SSM">SSM</h3>
+<p>SSM是控制论中的一种模型，其本质是将一个n阶系统用n个一阶等式进行矩阵表达。如何理解这句话呢？看如下的一个弹簧振子系统：</p>
+<img src="/images/Spring_1.png" class width="500" height="300" title="Spring_1">
+<p>这个弹簧阻尼系统在像墙壁方向移动时，会产生一段位移，位移$y(t)$与系统中其他参数的关系可以用下面这个等式来进行表示：</p>
+<p>$$m\frac{d^2y(t)}{dt^2} + b \frac{dy(t)}{dt} + ky(t) = x(t)$$</p>
+<p>令$h_1(t)=y(t)$，$h_2(t)=\frac{dy(t)}{dt}$</p>
+<p>$$m\frac{dh_2(t)}{dt} + b h_2(t) + k h_1(t) = x(t)$$<br>
+$$\frac{dh_2(t)}{dt} = \frac{1}{m}(- b h_2(t) - k h_1(t) + x(t))$$<br>
+将等式转换为矩阵形式表示：<br>
+$$\frac{d\begin{bmatrix}<br>
+h_1(t) \\<br>
+h_2(t) \\<br>
+\end{bmatrix}}{dt}<br>
+=\begin{bmatrix}<br>
+\frac{dh_1(t)}{dt} \\<br>
+\frac{dh_2(t)}{dt} \\<br>
+\end{bmatrix}<br>
+=\begin{bmatrix}<br>
+0 &amp; 1 \\<br>
+-\frac{k}{m} &amp; -\frac{b}{m} \\<br>
+\end{bmatrix}<br>
+\begin{bmatrix}<br>
+h_1(t) \\<br>
+h_2(t) \\<br>
+\end{bmatrix}<br>
++\begin{bmatrix}<br>
+0 \\<br>
+\frac{1}{m} \\<br>
+\end{bmatrix}<br>
+x(t)<br>
+$$</p>
+<p>$$<br>
+y(t)=<br>
+\begin{bmatrix}<br>
+0 &amp; 1 \\<br>
+\end{bmatrix}<br>
+\begin{bmatrix}<br>
+h_1(t) \\<br>
+h_2(t) \\<br>
+\end{bmatrix}<br>
+$$<br>
+令$\begin{bmatrix}0 &amp; 1 \\ -\frac{k}{m} &amp; -\frac{b}{m} \\ \end{bmatrix} = A$， $\begin{bmatrix} 0 \\ \frac{1}{m} \\ \end{bmatrix} = B$，$\begin{bmatrix}0 &amp; 1 \end{bmatrix} = C$，$\begin{bmatrix} h_1(t) \\ h_2(t) \\ \end{bmatrix} = H(t)$，上式变为：</p>
+<p>$$<br>
+\frac{dH(t)}{dt} = A H(t) + B x(t) \tag{1}<br>
+$$</p>
+<p>$$y(t) = C H(t) $$</p>
+<p>此处得到了SSM系统的连续形式，但处理离散的时序信号，我们还需要将其进行离散化。</p>
+<p><strong>离散化：</strong></p>
+<p>首先用一点微积分的小trick，$(1)$式两边同乘$e^{-At}$，移项合并后得到：</p>
+<p>$$<br>
+\frac{de^{-At}H(t)}{dt} = e^{-At}Bx(t) \tag{2}<br>
+$$</p>
+<p>将时域进行离散化，考虑$t_{k-1}\rightarrow t_k$这个状态变化。对于一个零阶保持系统而言，此时$x(t_{k-1})\rightarrow x(t_k)$可以理解为一个瞬态变化，$x(t_k)$的值不受$x(t_{k-1})$影响。而$y(t_k)$的$0\sim n$阶导数矩阵$H(t_k)$则受上一时刻的$H(t_{k-1})$影响。下图可以展示这一变化：</p>
+<img src="/images/Spring_2.png" class width="500" height="300" title="Spring_2">
+<p>对$(2)$式两边从$t_k-1$到$t_k$进行积分，化简后得到下式：</p>
+<p>$$<br>
+\int_{t_k}^{t_{k-1}} \frac{de^{-At}H(t)}{dt} = \int_{t_k}^{t_{k-1}} e^{-At}Bx(t)<br>
+$$<br>
+$$<br>
+\Rightarrow H(t_k) = e^{A(t_k-t_{k-1})}H(t_{k-1}) + \frac{1}{A}(I-e^{A(t_k-t_{k-1})})Bx(t_k) \tag{3}<br>
+$$<br>
+令$t_{k}-t_{k-1} = \Delta$，$e^{A\Delta}=\overline{A}$，$A^{-1}(e^{A\Delta}-I)B=\overline{B}$，$(3)$式变为：</p>
+<p>$$<br>
+H(t_k) = \overline{A}H(t_{k-1}) + \overline{B}x(t_{k})<br>
+$$</p>
+<p><em>注：对$e^{A\Delta}进行泰勒展开并去除高次项后$，可化简为 $\overline{B} = \Delta B$，代码中也是这样实现的，不过论文里并没有化简到这一步。</em></p>
+<figure class="highlight python"><table><tr><td class="code"><pre><span class="line"><span class="comment"># Reference: https://github.com/state-spaces/mamba/blob/main/mamba_ssm/modules/mamba_simple.py</span></span><br><span class="line">x_db = <span class="variable language_">self</span>.x_proj(x)  <span class="comment"># (B dt_rank+2*d_state)</span></span><br><span class="line">dt, B, C = torch.split(x_db, [<span class="variable language_">self</span>.dt_rank, <span class="variable language_">self</span>.d_state, <span class="variable language_">self</span>.d_state], dim=-<span class="number">1</span>)</span><br><span class="line">dB = torch.einsum(<span class="string">&quot;bd,bn-&gt;bdn&quot;</span>, dt, B)</span><br></pre></td></tr></table></figure>
+<p><strong>SSM图示：</strong></p>
+<img src="/images/SSM.png" class width="500" height="300" title="SSM">
+<h3 id="SSM存在的问题">SSM存在的问题</h3>
+<p>从SSM的公式及其图示可以看出，SSM的参数矩阵$A,B,C$是时不变矩阵，其隐状态矩阵$H$的更新方式并不随着时间改变。</p>
+<h3 id="选择状态空间模型Mamba">选择状态空间模型Mamba</h3>
+<p>如图所示，Mamba中的$\Delta$,$B$,$C$都是通过$x_{t_k}$映射而来，随着时间变换，参数矩阵也随之变化，从而克服了SSM模型存在的时不变问题，从而使得模型能够记住相关信息的同时滤除无关信息（从这里看Mamba和LSTM有着异曲同工之妙）。</p>
+<img src="/images/Mamba.png" class width="500" height="300" title="Mamba">
+<p>这一部分的实现代码如下：</p>
+<figure class="highlight python"><table><tr><td class="code"><pre><span class="line"><span class="comment"># Reference: https://github.com/state-spaces/mamba/blob/main/mamba_ssm/modules/mamba_simple.py</span></span><br><span class="line"><span class="keyword">class</span> <span class="title class_">Mamba</span>(nn.Module):</span><br><span class="line">    ...</span><br><span class="line">    <span class="keyword">def</span> <span class="title function_">step</span>(<span class="params">self, hidden_states, conv_state, ssm_state</span>):</span><br><span class="line">    <span class="comment">## input: hidden_states, conv_state, ssm_state</span></span><br><span class="line">    xz = <span class="variable language_">self</span>.in_proj(hidden_states.squeeze(<span class="number">1</span>))  <span class="comment"># (B 2D)</span></span><br><span class="line">    x, z = xz.chunk(<span class="number">2</span>, dim=-<span class="number">1</span>)  <span class="comment"># (B D)</span></span><br><span class="line"></span><br><span class="line">    <span class="comment"># Conv step</span></span><br><span class="line">    <span class="keyword">if</span> causal_conv1d_update <span class="keyword">is</span> <span class="literal">None</span>:</span><br><span class="line">        conv_state.copy_(torch.roll(conv_state, shifts=-<span class="number">1</span>, dims=-<span class="number">1</span>))  <span class="comment"># Update state (B D W)</span></span><br><span class="line">        conv_state[:, :, -<span class="number">1</span>] = x</span><br><span class="line">        x = torch.<span class="built_in">sum</span>(conv_state * rearrange(<span class="variable language_">self</span>.conv1d.weight, <span class="string">&quot;d 1 w -&gt; d w&quot;</span>), dim=-<span class="number">1</span>)  <span class="comment"># (B D)</span></span><br><span class="line">        <span class="keyword">if</span> <span class="variable language_">self</span>.conv1d.bias <span class="keyword">is</span> <span class="keyword">not</span> <span class="literal">None</span>:</span><br><span class="line">            x = x + <span class="variable language_">self</span>.conv1d.bias</span><br><span class="line">        x = <span class="variable language_">self</span>.act(x).to(dtype=dtype)</span><br><span class="line">    <span class="keyword">else</span>:</span><br><span class="line">        x = causal_conv1d_update(</span><br><span class="line">            x,</span><br><span class="line">            conv_state,</span><br><span class="line">            rearrange(<span class="variable language_">self</span>.conv1d.weight, <span class="string">&quot;d 1 w -&gt; d w&quot;</span>),</span><br><span class="line">            <span class="variable language_">self</span>.conv1d.bias,</span><br><span class="line">            <span class="variable language_">self</span>.activation,</span><br><span class="line">        )</span><br><span class="line"></span><br><span class="line">    x_db = <span class="variable language_">self</span>.x_proj(x)  <span class="comment"># (B dt_rank+2*d_state)</span></span><br><span class="line">    dt, B, C = torch.split(x_db, [<span class="variable language_">self</span>.dt_rank, <span class="variable language_">self</span>.d_state, <span class="variable language_">self</span>.d_state], dim=-<span class="number">1</span>)</span><br><span class="line">    <span class="comment"># Don&#x27;t add dt_bias here</span></span><br><span class="line">    dt = F.linear(dt, <span class="variable language_">self</span>.dt_proj.weight)  <span class="comment"># (B d_inner)</span></span><br><span class="line">    A = -torch.exp(<span class="variable language_">self</span>.A_log.<span class="built_in">float</span>())  <span class="comment"># (d_inner, d_state)</span></span><br><span class="line"></span><br><span class="line">    <span class="comment"># SSM step</span></span><br><span class="line">    <span class="keyword">if</span> selective_state_update <span class="keyword">is</span> <span class="literal">None</span>:</span><br><span class="line">        <span class="comment"># Discretize A and B</span></span><br><span class="line">        dt = F.softplus(dt + <span class="variable language_">self</span>.dt_proj.bias.to(dtype=dt.dtype))</span><br><span class="line">        dA = torch.exp(torch.einsum(<span class="string">&quot;bd,dn-&gt;bdn&quot;</span>, dt, A))</span><br><span class="line">        dB = torch.einsum(<span class="string">&quot;bd,bn-&gt;bdn&quot;</span>, dt, B)</span><br><span class="line">        ssm_state.copy_(ssm_state * dA + rearrange(x, <span class="string">&quot;b d -&gt; b d 1&quot;</span>) * dB)</span><br><span class="line">        y = torch.einsum(<span class="string">&quot;bdn,bn-&gt;bd&quot;</span>, ssm_state.to(dtype), C)</span><br><span class="line">        y = y + <span class="variable language_">self</span>.D.to(dtype) * x</span><br><span class="line">        y = y * <span class="variable language_">self</span>.act(z)  <span class="comment"># (B D)</span></span><br><span class="line">    <span class="keyword">else</span>:</span><br><span class="line">        y = selective_state_update(</span><br><span class="line">            ssm_state, x, dt, A, B, C, <span class="variable language_">self</span>.D, z=z, dt_bias=<span class="variable language_">self</span>.dt_proj.bias, dt_softplus=<span class="literal">True</span></span><br><span class="line">        )</span><br><span class="line"></span><br><span class="line">    out = <span class="variable language_">self</span>.out_proj(y)</span><br><span class="line">    <span class="keyword">return</span> out.unsqueeze(<span class="number">1</span>), conv_state, ssm_state</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+<p>除此之外，Mamba还使用硬件感知的选择性扫描(selective_scan)算法来加速递归计算。并行扫描算法将递归结构转化为更高效的并行操作，从而充分利用GPU/TPU的并行能力，提高了训练效率。这部分内容主要为工程实现，故不展开讨论。</p>
+<h3 id="Mamba模型的优势">Mamba模型的优势</h3>
+<p><strong>Mamba模型利用selective + SSM保证了模型对超长序列的建模能力，同时具有类RNN模型计算复杂度和时间成线性增长的优点。在训练推理方面，其通过特殊的并行扫描算法实现了并行训练，串行推理的特点，既能够提升训练速度，又能够保证推理的实时性。</strong></p>
+<h3 id="RNN-Transformer与Mamba对比">RNN, Transformer与Mamba对比</h3>
+<table>
+<thead>
+<tr>
+<th style="text-align:center">模型</th>
+<th style="text-align:center">RNN</th>
+<th style="text-align:center">Transformer</th>
+<th style="text-align:center">Mamba</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:center">优点</td>
+<td style="text-align:center">串行输入输出，先天保持序列顺序，理论上可以处理任意长度的序列，且实时性强；计算复杂度$O(n)$</td>
+<td style="text-align:center">并行处理序列，模型建模能力强，能有效捕获全局信息，模型规模易扩展</td>
+<td style="text-align:center">长序列建模能力强；并行训练，串行推理；计算复杂度$O(n)$</td>
+</tr>
+<tr>
+<td style="text-align:center">局限</td>
+<td style="text-align:center">存在长程依赖问题，信息被过度压缩，模型能力受限；串行结构训练速度受限</td>
+<td style="text-align:center">计算复杂度高$O(n^2)$，位置编码依赖；并行结构推理实时性差</td>
+<td style="text-align:center">硬件感知算法存在限制；思维链CoT效果仍不如Transformer；相关模型仍局限于研究，落地较少</td>
+</tr>
+</tbody>
+</table>
+<h2 id="总结">总结</h2>
+<p><strong>本文从RNN模型出发，介绍了经典RNN模型和的LSTM模型，了解了过往类RNN模型存在的缺陷。通过一个弹簧振子系统引入状态选择模型SSM，最终引入Mamba模型，并分析Mamba模型相比过往类RNN模型和Transformer存在的优势以及目前存在的局限。</strong></p>
+<p>Reference：</p>
+<p>Gu, A., &amp; Dao, T. (2023). Mamba: Linear-Time Sequence Modeling with Selective State Spaces. ArXiv, abs/2312.00752.<br>
+毛玉仁. (2025, January 6). 【浙江大学-大模型原理与技术】2-4 Mamba原理 [Video file]. 哔哩哔哩. Retrieved from <a href="https://www.bilibili.com/video/BV1JCrVYjEPN">https://www.bilibili.com/video/BV1JCrVYjEPN</a></p>
+]]></content>
+      <categories>
+        <category>机器学习</category>
+      </categories>
+      <tags>
+        <tag>RNN</tag>
+        <tag>LSTM</tag>
+        <tag>Mamba</tag>
+        <tag>时间序列模型</tag>
+        <tag>模型架构</tag>
+      </tags>
+  </entry>
+  <entry>
     <title>Parler-TTS微调</title>
     <url>/2025/01/23/Parler-TTS%E5%BE%AE%E8%B0%83/</url>
     <content><![CDATA[<p>本文为 在 local Linux 环境下 fine-tune Parler-TTS模型的流程</p>
 <p>主要参考Parler-TTS自带的fine-tune文档，使用的数据集为单一说话人数据集jenny-tts-6h。</p>
-<h2 id="准备core-代码库"><a href="#准备core-代码库" class="headerlink" title="准备core 代码库"></a>准备core 代码库</h2><p>下载 dataspeech 和 parler-TTS两个代码库，前者负责进行数据预处理，后者进行模型训练和推理。</p>
+<h2 id="准备core-代码库">准备core 代码库</h2>
+<p>下载 dataspeech 和 parler-TTS两个代码库，前者负责进行数据预处理，后者进行模型训练和推理。</p>
 <figure class="highlight python"><table><tr><td class="code"><pre><span class="line">git clone https://github.com/huggingface/dataspeech.git</span><br><span class="line">git clone https://github.com/huggingface/parler-tts.git</span><br></pre></td></tr></table></figure>
 <p>无网络，改为下载后上传到本地，然后解压到指定位置。</p>
-<h2 id="准备数据集"><a href="#准备数据集" class="headerlink" title="准备数据集"></a>准备数据集</h2><p>从huggingface官网下载包含README.md的jenny-tts-6h数据集，解压到指定位置。<br>并将数据文件从parque后缀格式转换为arrow后缀格式，方便之后处理数据。\<br><em>注：jenny-tts-6h是一个包含高质量音频的单一说话人数据集。</em></p>
+<h2 id="准备数据集">准备数据集</h2>
+<p>从huggingface官网下载包含README.md的jenny-tts-6h数据集，解压到指定位置。<br>
+并将数据文件从parque后缀格式转换为arrow后缀格式，方便之后处理数据。<br>
+<em>注：jenny-tts-6h是一个包含高质量音频的单一说话人数据集。</em></p>
 <figure class="highlight python"><table><tr><td class="code"><pre><span class="line"><span class="keyword">from</span> datasets <span class="keyword">import</span> load_dataset</span><br><span class="line">dataset = load_dataset(<span class="string">&quot;your_path/jenny-tts-6h&quot;</span>)</span><br><span class="line">dataset.save_to_disk(<span class="string">&quot;your_path/jenny-tts-6h_disk&quot;</span>)</span><br></pre></td></tr></table></figure>
-<p>此时的数据样本包含以下信息：\<br>文件名、转录文本、转录文本（小写）、音频（地址，数据array，采样率）</p>
-<h2 id="数据预处理"><a href="#数据预处理" class="headerlink" title="数据预处理"></a>数据预处理</h2><p>数据预处理步骤再dataspeech文件夹下完成，一共分为三个步骤，先将当前文件夹定位到<code>dataspeech</code>文件夹下</p>
+<p>此时的数据样本包含以下信息：<br>
+文件名、转录文本、转录文本（小写）、音频（地址，数据array，采样率）</p>
+<h2 id="数据预处理">数据预处理</h2>
+<p>数据预处理步骤再dataspeech文件夹下完成，一共分为三个步骤，先将当前文件夹定位到<code>dataspeech</code>文件夹下</p>
 <figure class="highlight python"><table><tr><td class="code"><pre><span class="line">cd dataspeech</span><br></pre></td></tr></table></figure>
 <p>将<code>main.py</code>中的<code>load_dataset</code>改为<code>load_from_disk</code>，后续文件遇到数据读取操作时同理。</p>
-<h3 id="得到音频的音高、混响等级、信噪比等信息"><a href="#得到音频的音高、混响等级、信噪比等信息" class="headerlink" title="得到音频的音高、混响等级、信噪比等信息"></a>得到音频的音高、混响等级、信噪比等信息</h3><p>下载得到音高估计模型<code>FCN-f0</code>，信噪比和混响估计模型<code>Brouhaha</code>的预训练模型并解压到本地，更改<code>main.py</code>和<code>dataspeech/gpu_enrichments</code>文件夹下代码，使得代码能从本地读取预训练模型。\<br>利用<code>main.py</code>提取音频文件的<strong>pitch, snr, c50</strong>等信息，其中调用<code>dataspeech/cpu_enrichments</code>下的<code>rate.py</code>文件，通过g2p模型将转录文本转换为<strong>音素</strong>，再通过统计方法得到<strong>语速</strong>信息。</p>
+<h3 id="得到音频的音高、混响等级、信噪比等信息">得到音频的音高、混响等级、信噪比等信息</h3>
+<p>下载得到音高估计模型<code>FCN-f0</code>，信噪比和混响估计模型<code>Brouhaha</code>的预训练模型并解压到本地，更改<code>main.py</code>和<code>dataspeech/gpu_enrichments</code>文件夹下代码，使得代码能从本地读取预训练模型。<br>
+利用<code>main.py</code>提取音频文件的<strong>pitch, snr, c50</strong>等信息，其中调用<code>dataspeech/cpu_enrichments</code>下的<code>rate.py</code>文件，通过g2p模型将转录文本转换为<strong>音素</strong>，再通过统计方法得到<strong>语速</strong>信息。</p>
 <figure class="highlight python"><table><tr><td class="code"><pre><span class="line">python main.py <span class="string">&quot;your_path/jenny-tts-6h_disk&quot;</span> \</span><br><span class="line">  --configuration <span class="string">&quot;default&quot;</span> \</span><br><span class="line">  --text_column_name <span class="string">&quot;transcription&quot;</span> \</span><br><span class="line">  --audio_column_name <span class="string">&quot;audio&quot;</span> \</span><br><span class="line">  --cpu_num_workers <span class="number">2</span> \</span><br><span class="line">  --rename_column \</span><br><span class="line">  --output_dir <span class="string">&quot;your_path/jenny-tts-tags-6h-v1&quot;</span> \</span><br><span class="line">  --apply_squim_quality_estimation</span><br></pre></td></tr></table></figure>
 <p>此时的数据样本增加以下信息：语段音高（均值，方差）、snr、c50（混响等级）、说话速度、音素。数据保存至<code>your_path/jenny-tts-tags-6h-v1</code>文件夹下，此时文件保存为disk格式，方便后续处理。</p>
-<h3 id="得到用文本描述的音频信息"><a href="#得到用文本描述的音频信息" class="headerlink" title="得到用文本描述的音频信息"></a>得到用文本描述的音频信息</h3><p>利用<code>metadata_to_text.py</code>文件，通过统计分桶方法，将统计值转换为有限的文本描述。</p>
+<h3 id="得到用文本描述的音频信息">得到用文本描述的音频信息</h3>
+<p>利用<code>metadata_to_text.py</code>文件，通过统计分桶方法，将统计值转换为有限的文本描述。</p>
 <figure class="highlight python"><table><tr><td class="code"><pre><span class="line">python ./scripts/metadata_to_text.py \</span><br><span class="line">    <span class="string">&quot;your_path/jenny-tts-tags-6h-v1&quot;</span> \</span><br><span class="line">    --output_dir <span class="string">&quot;your_path/jenny-tts-text-tags-6h-v1&quot;</span> \</span><br><span class="line">    --configuration <span class="string">&quot;default&quot;</span> \</span><br><span class="line">    --cpu_num_workers <span class="number">2</span> \</span><br><span class="line">    --path_to_bin_edges <span class="string">&quot;./examples/tags_to_annotations/v02_bin_edges.json&quot;</span> \</span><br><span class="line">    --path_to_text_bins <span class="string">&quot;./examples/tags_to_annotations/v02_text_bins.json&quot;</span> \</span><br><span class="line">    --avoid_pitch_computation \</span><br><span class="line">    --apply_squim_quality_estimation</span><br></pre></td></tr></table></figure>
 <p>此时数据数据样本增加以下信息：语速、噪声、混响和语音单调性的文本描述。数据保存至<code>your_path/jenny-tts-text-tags-6h-v1</code>文件夹下，此时文件保存为disk格式，方便后续处理。</p>
-<h3 id="将离散文本转换为连贯的描述性语句"><a href="#将离散文本转换为连贯的描述性语句" class="headerlink" title="将离散文本转换为连贯的描述性语句"></a>将离散文本转换为连贯的描述性语句</h3><p>得到google的轻量级大语言模型<code>gemma-2-2b-it</code>通过<code>run_prompt_creation.py</code>文件，将碎片化的语言描述词语转换为连贯的描述性语句。</p>
+<h3 id="将离散文本转换为连贯的描述性语句">将离散文本转换为连贯的描述性语句</h3>
+<p>得到google的轻量级大语言模型<code>gemma-2-2b-it</code>通过<code>run_prompt_creation.py</code>文件，将碎片化的语言描述词语转换为连贯的描述性语句。</p>
 <figure class="highlight python"><table><tr><td class="code"><pre><span class="line">python ./scripts/run_prompt_creation.py \</span><br><span class="line">  --speaker_name <span class="string">&quot;Jenny&quot;</span> \</span><br><span class="line">  --is_single_speaker \</span><br><span class="line">  --is_new_speaker_prompt \</span><br><span class="line">  --dataset_name <span class="string">&quot;ylacombe/jenny-tts-text-tags-6h-v1&quot;</span> \</span><br><span class="line">  --output_dir <span class="string">&quot;./tmp_jenny&quot;</span> \</span><br><span class="line">  --dataset_config_name <span class="string">&quot;default&quot;</span> \</span><br><span class="line">  --model_name_or_path <span class="string">&quot;google/gemma-2-2b-it&quot;</span> \</span><br><span class="line">  --per_device_eval_batch_size <span class="number">5</span> \</span><br><span class="line">  --attn_implementation <span class="string">&quot;sdpa&quot;</span> \</span><br><span class="line">  --dataloader_num_workers <span class="number">2</span> \</span><br><span class="line">  --preprocessing_num_workers <span class="number">2</span></span><br></pre></td></tr></table></figure>
 <p>此时数据数据样本增加以下信息：连贯的描述性语句。数据保存至<code>your_path/jenny-tts-text-tags-6h-v1</code>文件夹下，此时文件保存为disk格式，方便后续处理。</p>
-<h2 id="模型训练"><a href="#模型训练" class="headerlink" title="模型训练"></a>模型训练</h2><p>将当前文件夹定位到<code>parler-tts</code>文件夹下</p>
+<h2 id="模型训练">模型训练</h2>
+<p>将当前文件夹定位到<code>parler-tts</code>文件夹下</p>
 <figure class="highlight python"><table><tr><td class="code"><pre><span class="line">cd parler-tts</span><br></pre></td></tr></table></figure>
 <p>从huggingface/parler-tts下载得到parler-tts和DAC_44khz预训练模型，使用<code>training/run_parler_tts_training.py</code>进行训练，得到微调后的模型。</p>
 <p>具体为</p>
-<p><strong>1</strong>.  通过<code>Flan-T5</code>模型将描述文本(Description text)和转录文本(Transcript text)映射为hidden states。\<br><strong>2</strong>.  将描述文本的hidden states和由转录文本hidden states作为前缀的hidden states作为输入，通过一个语言模型(LM)，自回归生成音频码本矩阵。\<br><strong>3</strong>.  将输出的码本矩阵和通过<code>DAC_44khz</code>音频自编码器的预训练模型中<code>Encoder</code>生成的音频码本矩阵进行对比学习，得到一个音频模型。\<br><strong>4</strong>.  利用<code>DAC_44khz</code>音频自编码器的预训练模型中的<code>Decoder</code>部分将离散的码本矩阵转换为音频信号。</p>
-<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>  <strong>训练过程分为四个步骤，分别对应上述四个步骤。Parler-TTS模型使用了DAC自编码器和一个高质量的语音数据集， 并且可以在无参考音频的情况下进行训练，利用文本描述和转录文本来生成音频信号。个人理解，在这种情况下进行训练，可以充分利用现有的语言模型，比如项目中使用的gemma-2-2b-it模型，将音频模型转换为语言模型来进行处理。但似乎这样缺少了音频对比学习这一步，相当于在音频标注数据不够情况下的一种妥协，想要进一步提升性能，可能需要更多的音频标注数据。</strong></p>
+<p><strong>1</strong>.  通过<code>Flan-T5</code>模型将描述文本(Description text)和转录文本(Transcript text)映射为hidden states。<br>
+<strong>2</strong>.  将描述文本的hidden states和由转录文本hidden states作为前缀的hidden states作为输入，通过一个语言模型(LM)，自回归生成音频码本矩阵。<br>
+<strong>3</strong>.  将输出的码本矩阵和通过<code>DAC_44khz</code>音频自编码器的预训练模型中<code>Encoder</code>生成的音频码本矩阵进行对比学习，得到一个音频模型。<br>
+<strong>4</strong>.  利用<code>DAC_44khz</code>音频自编码器的预训练模型中的<code>Decoder</code>部分将离散的码本矩阵转换为音频信号。</p>
+<h2 id="总结">总结</h2>
+<p><strong>训练过程分为四个步骤，分别对应上述四个步骤。Parler-TTS模型使用了DAC自编码器和一个高质量的语音数据集， 并且可以在无参考音频的情况下进行训练，利用文本描述和转录文本来生成音频信号。个人理解，在这种情况下进行训练，可以充分利用现有的语言模型，比如项目中使用的gemma-2-2b-it模型，将音频模型转换为语言模型来进行处理。但似乎这样缺少了音频对比学习这一步，相当于在音频标注数据不够情况下的一种妥协，想要进一步提升性能，可能需要更多的音频标注数据。</strong></p>
 ]]></content>
       <categories>
         <category>语音合成</category>
@@ -39,14 +252,5 @@
         <tag>Linux</tag>
         <tag>Local</tag>
       </tags>
-  </entry>
-  <entry>
-    <title>RNN LSTM 和 Mamba</title>
-    <url>/2025/01/31/RNN,%20LSTM%20and%20Mamba/</url>
-    <content><![CDATA[<h2 id="RNN"><a href="#RNN" class="headerlink" title="RNN"></a>RNN</h2><p>隐状态更新公式：</p>
-<script type="math/tex; mode=display">h_t = \sigma( W_{I} x_t + W_{H} h_{t-1} + b_h )</script><p>输出公式：</p>
-<script type="math/tex; mode=display">y_t = \text{softmax}( W_{Oq} h_t + b_y )</script><p>循环示意图：</p>
-<img src="/images/rnn.png" class width="300" height="200" title="RNN">
-]]></content>
   </entry>
 </search>
