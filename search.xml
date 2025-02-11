@@ -1,12 +1,68 @@
 <?xml version="1.0" encoding="utf-8"?>
 <search>
   <entry>
+    <title>Parler-TTS微调</title>
+    <url>/2025/01/23/Parler-TTS%E5%BE%AE%E8%B0%83/</url>
+    <content><![CDATA[<p>本文为 在 local Linux 环境下 fine-tune Parler-TTS模型的流程</p>
+<p>主要参考Parler-TTS自带的fine-tune文档，使用的数据集为单一说话人数据集jenny-tts-6h。</p>
+<h2 id="准备core-代码库">准备core 代码库</h2>
+<p>下载 dataspeech 和 parler-TTS两个代码库，前者负责进行数据预处理，后者进行模型训练和推理。</p>
+<figure class="highlight python"><table><tr><td class="code"><pre><span class="line">git clone https://github.com/huggingface/dataspeech.git</span><br><span class="line">git clone https://github.com/huggingface/parler-tts.git</span><br></pre></td></tr></table></figure>
+<p>无网络，改为下载后上传到本地，然后解压到指定位置。</p>
+<h2 id="准备数据集">准备数据集</h2>
+<p>从huggingface官网下载包含README.md的jenny-tts-6h数据集，解压到指定位置。<br>
+并将数据文件从parque后缀格式转换为arrow后缀格式，方便之后处理数据。<br>
+<em>注：jenny-tts-6h是一个包含高质量音频的单一说话人数据集。</em></p>
+<figure class="highlight python"><table><tr><td class="code"><pre><span class="line"><span class="keyword">from</span> datasets <span class="keyword">import</span> load_dataset</span><br><span class="line">dataset = load_dataset(<span class="string">&quot;your_path/jenny-tts-6h&quot;</span>)</span><br><span class="line">dataset.save_to_disk(<span class="string">&quot;your_path/jenny-tts-6h_disk&quot;</span>)</span><br></pre></td></tr></table></figure>
+<p>此时的数据样本包含以下信息：<br>
+文件名、转录文本、转录文本（小写）、音频（地址，数据array，采样率）</p>
+<h2 id="数据预处理">数据预处理</h2>
+<p>数据预处理步骤再dataspeech文件夹下完成，一共分为三个步骤，先将当前文件夹定位到<code>dataspeech</code>文件夹下</p>
+<figure class="highlight python"><table><tr><td class="code"><pre><span class="line">cd dataspeech</span><br></pre></td></tr></table></figure>
+<p>将<code>main.py</code>中的<code>load_dataset</code>改为<code>load_from_disk</code>，后续文件遇到数据读取操作时同理。</p>
+<h3 id="得到音频的音高、混响等级、信噪比等信息">得到音频的音高、混响等级、信噪比等信息</h3>
+<p>下载得到音高估计模型<code>FCN-f0</code>，信噪比和混响估计模型<code>Brouhaha</code>的预训练模型并解压到本地，更改<code>main.py</code>和<code>dataspeech/gpu_enrichments</code>文件夹下代码，使得代码能从本地读取预训练模型。<br>
+利用<code>main.py</code>提取音频文件的<strong>pitch, snr, c50</strong>等信息，其中调用<code>dataspeech/cpu_enrichments</code>下的<code>rate.py</code>文件，通过g2p模型将转录文本转换为<strong>音素</strong>，再通过统计方法得到<strong>语速</strong>信息。</p>
+<figure class="highlight python"><table><tr><td class="code"><pre><span class="line">python main.py <span class="string">&quot;your_path/jenny-tts-6h_disk&quot;</span> \</span><br><span class="line">  --configuration <span class="string">&quot;default&quot;</span> \</span><br><span class="line">  --text_column_name <span class="string">&quot;transcription&quot;</span> \</span><br><span class="line">  --audio_column_name <span class="string">&quot;audio&quot;</span> \</span><br><span class="line">  --cpu_num_workers <span class="number">2</span> \</span><br><span class="line">  --rename_column \</span><br><span class="line">  --output_dir <span class="string">&quot;your_path/jenny-tts-tags-6h-v1&quot;</span> \</span><br><span class="line">  --apply_squim_quality_estimation</span><br></pre></td></tr></table></figure>
+<p>此时的数据样本增加以下信息：语段音高（均值，方差）、snr、c50（混响等级）、说话速度、音素。数据保存至<code>your_path/jenny-tts-tags-6h-v1</code>文件夹下，此时文件保存为disk格式，方便后续处理。</p>
+<h3 id="得到用文本描述的音频信息">得到用文本描述的音频信息</h3>
+<p>利用<code>metadata_to_text.py</code>文件，通过统计分桶方法，将统计值转换为有限的文本描述。</p>
+<figure class="highlight python"><table><tr><td class="code"><pre><span class="line">python ./scripts/metadata_to_text.py \</span><br><span class="line">    <span class="string">&quot;your_path/jenny-tts-tags-6h-v1&quot;</span> \</span><br><span class="line">    --output_dir <span class="string">&quot;your_path/jenny-tts-text-tags-6h-v1&quot;</span> \</span><br><span class="line">    --configuration <span class="string">&quot;default&quot;</span> \</span><br><span class="line">    --cpu_num_workers <span class="number">2</span> \</span><br><span class="line">    --path_to_bin_edges <span class="string">&quot;./examples/tags_to_annotations/v02_bin_edges.json&quot;</span> \</span><br><span class="line">    --path_to_text_bins <span class="string">&quot;./examples/tags_to_annotations/v02_text_bins.json&quot;</span> \</span><br><span class="line">    --avoid_pitch_computation \</span><br><span class="line">    --apply_squim_quality_estimation</span><br></pre></td></tr></table></figure>
+<p>此时数据数据样本增加以下信息：语速、噪声、混响和语音单调性的文本描述。数据保存至<code>your_path/jenny-tts-text-tags-6h-v1</code>文件夹下，此时文件保存为disk格式，方便后续处理。</p>
+<h3 id="将离散文本转换为连贯的描述性语句">将离散文本转换为连贯的描述性语句</h3>
+<p>得到google的轻量级大语言模型<code>gemma-2-2b-it</code>通过<code>run_prompt_creation.py</code>文件，将碎片化的语言描述词语转换为连贯的描述性语句。</p>
+<figure class="highlight python"><table><tr><td class="code"><pre><span class="line">python ./scripts/run_prompt_creation.py \</span><br><span class="line">  --speaker_name <span class="string">&quot;Jenny&quot;</span> \</span><br><span class="line">  --is_single_speaker \</span><br><span class="line">  --is_new_speaker_prompt \</span><br><span class="line">  --dataset_name <span class="string">&quot;ylacombe/jenny-tts-text-tags-6h-v1&quot;</span> \</span><br><span class="line">  --output_dir <span class="string">&quot;./tmp_jenny&quot;</span> \</span><br><span class="line">  --dataset_config_name <span class="string">&quot;default&quot;</span> \</span><br><span class="line">  --model_name_or_path <span class="string">&quot;google/gemma-2-2b-it&quot;</span> \</span><br><span class="line">  --per_device_eval_batch_size <span class="number">5</span> \</span><br><span class="line">  --attn_implementation <span class="string">&quot;sdpa&quot;</span> \</span><br><span class="line">  --dataloader_num_workers <span class="number">2</span> \</span><br><span class="line">  --preprocessing_num_workers <span class="number">2</span></span><br></pre></td></tr></table></figure>
+<p>此时数据数据样本增加以下信息：连贯的描述性语句。数据保存至<code>your_path/jenny-tts-text-tags-6h-v1</code>文件夹下，此时文件保存为disk格式，方便后续处理。</p>
+<h2 id="模型训练">模型训练</h2>
+<p>将当前文件夹定位到<code>parler-tts</code>文件夹下</p>
+<figure class="highlight python"><table><tr><td class="code"><pre><span class="line">cd parler-tts</span><br></pre></td></tr></table></figure>
+<p>从huggingface/parler-tts下载得到parler-tts和DAC_44khz预训练模型，使用<code>training/run_parler_tts_training.py</code>进行训练，得到微调后的模型。</p>
+<p>具体为</p>
+<p><strong>1</strong>.  通过<code>Flan-T5</code>模型将描述文本(Description text)和转录文本(Transcript text)映射为hidden states。<br>
+<strong>2</strong>.  将描述文本的hidden states和由转录文本hidden states作为前缀的hidden states作为输入，通过一个语言模型(LM)，自回归生成音频码本矩阵。<br>
+<strong>3</strong>.  将输出的码本矩阵和通过<code>DAC_44khz</code>音频自编码器的预训练模型中<code>Encoder</code>生成的音频码本矩阵进行对比学习，得到一个音频模型。<br>
+<strong>4</strong>.  利用<code>DAC_44khz</code>音频自编码器的预训练模型中的<code>Decoder</code>部分将离散的码本矩阵转换为音频信号。</p>
+<h2 id="总结">总结</h2>
+<p><strong>训练过程分为四个步骤，分别对应上述四个步骤。Parler-TTS模型使用了DAC自编码器和一个高质量的语音数据集， 并且可以在无参考音频的情况下进行训练，利用文本描述和转录文本来生成音频信号。个人理解，在这种情况下进行训练，可以充分利用现有的语言模型，比如项目中使用的gemma-2-2b-it模型，将音频模型转换为语言模型来进行处理。但似乎这样缺少了音频对比学习这一步，相当于在音频标注数据不够情况下的一种妥协，想要进一步提升性能，可能需要更多的音频标注数据。</strong></p>
+]]></content>
+      <categories>
+        <category>语音合成</category>
+      </categories>
+      <tags>
+        <tag>语音合成</tag>
+        <tag>大模型微调</tag>
+        <tag>Linux</tag>
+        <tag>Local</tag>
+      </tags>
+  </entry>
+  <entry>
     <title>RNN LSTM 和 Mamba</title>
     <url>/2025/01/31/RNN,%20LSTM%20and%20Mamba/</url>
     <content><![CDATA[<h2 id="前言">前言</h2>
 <p>说到时间序列网络，RNN是一个逃不掉的网络结构，而后续衍生出来的类RNN网络也层出不穷，比如应用最为广泛的LSTM网络。随着Transformer的提出，self-attention结构在nlp,语音信号处理等各种时序任务中展现出的效果逐渐超过了RNN结构。然而在计算复杂度方面，transformer与序列长度成二次关系，类rnn网络则与序列长度成线性关系，因此类rnn结构仍然有其优势。Mamba结构在2023年底被提出，作为一种新的类rnn结构，其旨在保持长程序列建模能力的同时，提升长序列处理效率。Mamba在2024年被广泛使用，并在很多领域取得了不错的效果。</p>
 <p>在介绍今天的主角Mamba架构之前，先介绍一下RNN和LSTM架构，方便后续的对比。</p>
 <h2 id="RNN">RNN</h2>
+<p>RNN简单点说就是用一个隐藏状态变量$h_t$向当前信息点$x_t$传递之前的信息，并转换为一个输出信息点$y_t$。</p>
 <h3 id="公式">公式</h3>
 <p><strong>隐状态更新公式：</strong><br>
 $$h_t = \sigma(x_t W_{I} + b_i + h_{t-1} W_{H}  + b_h )$$<br>
@@ -17,10 +73,12 @@ $$y_t = h_t W_{O}  + b_y$$</p>
 <img src="/images/single-rnn.png" class width="500" height="300" title="single-RNN">
 <p><strong>单层rnn代码:</strong></p>
 <figure class="highlight python"><table><tr><td class="code"><pre><span class="line"><span class="keyword">import</span> torch </span><br><span class="line"><span class="keyword">import</span> torch.nn <span class="keyword">as</span> nn</span><br><span class="line"></span><br><span class="line"><span class="keyword">class</span> <span class="title class_">SingleRNN</span>(nn.Module):</span><br><span class="line">    <span class="keyword">def</span> <span class="title function_">__init__</span>(<span class="params">self, input_size, hidden_size, activation=<span class="string">&quot;tanh&quot;</span></span>):</span><br><span class="line">        <span class="built_in">super</span>().__init__()</span><br><span class="line">        <span class="variable language_">self</span>.input_size = input_size</span><br><span class="line">        <span class="variable language_">self</span>.hidden_size = hidden_size</span><br><span class="line"></span><br><span class="line">        <span class="variable language_">self</span>.W_I = nn.Parameter(torch.randn(input_size, hidden_size))</span><br><span class="line">        <span class="variable language_">self</span>.W_H = nn.Parameter(torch.randn(hidden_size, hidden_size))</span><br><span class="line">        <span class="variable language_">self</span>.W_O = nn.Parameter(torch.randn(hidden_size, input_size))</span><br><span class="line"></span><br><span class="line">        <span class="variable language_">self</span>.bias_i = nn.Parameter(torch.randn(hidden_size))</span><br><span class="line">        <span class="variable language_">self</span>.bias_h = nn.Parameter(torch.randn(hidden_size))</span><br><span class="line">        <span class="variable language_">self</span>.bias_y = nn.Parameter(torch.randn(input_size))</span><br><span class="line"></span><br><span class="line">        <span class="variable language_">self</span>.activation = nn.Tanh() <span class="keyword">if</span> activation == <span class="string">&quot;tanh&quot;</span> <span class="keyword">else</span> nn.ReLU()</span><br><span class="line">    </span><br><span class="line">    <span class="keyword">def</span> <span class="title function_">forward</span>(<span class="params">self, x</span>):</span><br><span class="line">        b, seq_len, dim = x.shape</span><br><span class="line">        h_pre = torch.zeros(b, <span class="variable language_">self</span>.hidden_size).to(x.device)</span><br><span class="line">        output = []</span><br><span class="line">        hidden = []</span><br><span class="line">        <span class="keyword">for</span> t <span class="keyword">in</span> <span class="built_in">range</span>(seq_len):</span><br><span class="line">            x_t = x[:, t, :]</span><br><span class="line">            h_t = <span class="variable language_">self</span>.activation(x_t @ <span class="variable language_">self</span>.W_I + <span class="variable language_">self</span>.bias_i + h_pre @ <span class="variable language_">self</span>.W_H + <span class="variable language_">self</span>.bias_h)</span><br><span class="line">            y_t = h_t @ <span class="variable language_">self</span>.W_O + <span class="variable language_">self</span>.bias_y</span><br><span class="line">            h_pre = h_t</span><br><span class="line">            hidden.append(h_t.unsqueeze(<span class="number">1</span>))</span><br><span class="line">            output.append(y_t.unsqueeze(<span class="number">1</span>))</span><br><span class="line">        </span><br><span class="line">        hidden = torch.cat(hidden, dim=<span class="number">1</span>)</span><br><span class="line">        output = torch.cat(output, dim=<span class="number">1</span>)</span><br><span class="line">        <span class="keyword">return</span> hidden, output</span><br></pre></td></tr></table></figure>
+<p>显然单层的rnn建模能力对于大部分时序任务是不够的，所以需要对rnn进行堆叠，其原理非常简单，即将上一层rnn得到的隐藏状态作为下一层rnn的输入。示意图如下所示：</p>
 <p><strong>多层rnn示意图：</strong></p>
 <img src="/images/multi-rnn.png" class width="450" height="300" title="multi-RNN">
 <p><strong>多层rnn代码：</strong></p>
 <figure class="highlight python"><table><tr><td class="code"><pre><span class="line"><span class="keyword">import</span> torch</span><br><span class="line"><span class="keyword">import</span> torch.nn <span class="keyword">as</span> nn</span><br><span class="line"><span class="keyword">class</span> <span class="title class_">MultiLayerRNN</span>(nn.Module):</span><br><span class="line">    <span class="keyword">def</span> <span class="title function_">__init__</span>(<span class="params">self, input_size, hidden_size, num_layers</span>):</span><br><span class="line">        <span class="built_in">super</span>().__init__()</span><br><span class="line">        <span class="variable language_">self</span>.input_size = input_size</span><br><span class="line">        <span class="variable language_">self</span>.hidden_size = hidden_size</span><br><span class="line">        <span class="variable language_">self</span>.num_layers = num_layers</span><br><span class="line">        <span class="variable language_">self</span>.rnn = nn.RNN(input_size, hidden_size, num_layers, batch_first=<span class="literal">True</span>)</span><br><span class="line">        <span class="variable language_">self</span>.fc = nn.Linear(hidden_size, input_size)</span><br><span class="line">    </span><br><span class="line">    <span class="keyword">def</span> <span class="title function_">forward</span>(<span class="params">self, x</span>):</span><br><span class="line">        h0 = torch.zeros(<span class="variable language_">self</span>.num_layers, x.size(<span class="number">0</span>), <span class="variable language_">self</span>.hidden_size).to(x.device)</span><br><span class="line">        hidden, _ = <span class="variable language_">self</span>.rnn(x, h0)</span><br><span class="line">        output = <span class="variable language_">self</span>.fc(hidden)</span><br><span class="line">        <span class="keyword">return</span> hidden, output</span><br></pre></td></tr></table></figure>
+<p>对于有些时序任务，我们不需要让他实现实时输出（即只利用过去信息），此时我们可以使用双向rnn，让模型能够使用过去以及未来的信息，原理同样不难，示意图如下所示：</p>
 <p><strong>双向rnn示意图：</strong></p>
 <img src="/images/Bi-rnn.png" class width="300" height="500" title="bidirectional-RNN">
 <p><strong>双向rnn代码：</strong></p>
@@ -51,6 +109,8 @@ $$y_t = h_t W_{O}  + b_y$$</p>
 </tbody>
 </table>
 <h2 id="LSTM">LSTM</h2>
+<p>如果说RNN是一条给他赋予各种奇怪记忆并隔一段时间就会忘记的金鱼(据说只有7秒的记忆)，那LSTM就像是一条大河，人们设置堤坝让小溪汇入其中，也会开闸防洪让大河的水重新汇入小溪。<br>
+LSTM设置的各种门，输入门$i_t$、遗忘门$f_t$，输出门$y_t$无疑不体现了这种人工的设计感（这和后面提到的Mamba利用公式一步步推导出来的自然感有着不同的感觉），并用一个&quot;细胞&quot;状态$c_t$体现这条大河对过去，现在以及未来的影响。</p>
 <h3 id="公式-2">公式</h3>
 <p><strong>遗忘门公式：</strong><br>
 $$f_t = \sigma(x_t W_{if}  + b_if + h_{t-1} W_{hf}  + b_hf)$$<br>
@@ -76,7 +136,7 @@ $$y_t = h_t W_{O}  + b_y$$</p>
 <h3 id="LSTM的问题">LSTM的问题</h3>
 <p>虽然LSTM缓解了长程依赖问题，但在需要处理超长序列的任务中，LSTM的表现仍不如Transformer。</p>
 <h2 id="Mamba">Mamba</h2>
-<p>Mamba模型的原论文标题是：<em>Mamba:Linear-Time Sequence Modeling with Selective State Spaces</em>，可以看出，Mamba是一种状态空间模型SSM(State Space Model)。要分析Mamba模型，让我们先从拆解SSM开始。</p>
+<p>看到Mamba的第一眼肯定会想到辣个男人，但mamba其实是一种咬人迅速敏捷的眼镜蛇，或许也是其对Transformer模型架构进行挑战的一种表达方式（模型的串行处理速度快于Transformer）。Mamba模型的原论文标题是：<em>Mamba:Linear-Time Sequence Modeling with Selective State Spaces</em>，可以看出，Mamba是一种状态空间模型SSM(State Space Model)。要分析Mamba模型，让我们先从拆解SSM开始。</p>
 <h3 id="SSM">SSM</h3>
 <p>SSM是控制论中的一种模型，其本质是将一个n阶系统用n个一阶等式进行矩阵表达。如何理解这句话呢？看如下的一个弹簧振子系统：</p>
 <img src="/images/Spring_1.png" class width="500" height="300" title="Spring_1">
@@ -196,61 +256,6 @@ $$</p>
         <tag>Mamba</tag>
         <tag>时间序列模型</tag>
         <tag>模型架构</tag>
-      </tags>
-  </entry>
-  <entry>
-    <title>Parler-TTS微调</title>
-    <url>/2025/01/23/Parler-TTS%E5%BE%AE%E8%B0%83/</url>
-    <content><![CDATA[<p>本文为 在 local Linux 环境下 fine-tune Parler-TTS模型的流程</p>
-<p>主要参考Parler-TTS自带的fine-tune文档，使用的数据集为单一说话人数据集jenny-tts-6h。</p>
-<h2 id="准备core-代码库">准备core 代码库</h2>
-<p>下载 dataspeech 和 parler-TTS两个代码库，前者负责进行数据预处理，后者进行模型训练和推理。</p>
-<figure class="highlight python"><table><tr><td class="code"><pre><span class="line">git clone https://github.com/huggingface/dataspeech.git</span><br><span class="line">git clone https://github.com/huggingface/parler-tts.git</span><br></pre></td></tr></table></figure>
-<p>无网络，改为下载后上传到本地，然后解压到指定位置。</p>
-<h2 id="准备数据集">准备数据集</h2>
-<p>从huggingface官网下载包含README.md的jenny-tts-6h数据集，解压到指定位置。<br>
-并将数据文件从parque后缀格式转换为arrow后缀格式，方便之后处理数据。<br>
-<em>注：jenny-tts-6h是一个包含高质量音频的单一说话人数据集。</em></p>
-<figure class="highlight python"><table><tr><td class="code"><pre><span class="line"><span class="keyword">from</span> datasets <span class="keyword">import</span> load_dataset</span><br><span class="line">dataset = load_dataset(<span class="string">&quot;your_path/jenny-tts-6h&quot;</span>)</span><br><span class="line">dataset.save_to_disk(<span class="string">&quot;your_path/jenny-tts-6h_disk&quot;</span>)</span><br></pre></td></tr></table></figure>
-<p>此时的数据样本包含以下信息：<br>
-文件名、转录文本、转录文本（小写）、音频（地址，数据array，采样率）</p>
-<h2 id="数据预处理">数据预处理</h2>
-<p>数据预处理步骤再dataspeech文件夹下完成，一共分为三个步骤，先将当前文件夹定位到<code>dataspeech</code>文件夹下</p>
-<figure class="highlight python"><table><tr><td class="code"><pre><span class="line">cd dataspeech</span><br></pre></td></tr></table></figure>
-<p>将<code>main.py</code>中的<code>load_dataset</code>改为<code>load_from_disk</code>，后续文件遇到数据读取操作时同理。</p>
-<h3 id="得到音频的音高、混响等级、信噪比等信息">得到音频的音高、混响等级、信噪比等信息</h3>
-<p>下载得到音高估计模型<code>FCN-f0</code>，信噪比和混响估计模型<code>Brouhaha</code>的预训练模型并解压到本地，更改<code>main.py</code>和<code>dataspeech/gpu_enrichments</code>文件夹下代码，使得代码能从本地读取预训练模型。<br>
-利用<code>main.py</code>提取音频文件的<strong>pitch, snr, c50</strong>等信息，其中调用<code>dataspeech/cpu_enrichments</code>下的<code>rate.py</code>文件，通过g2p模型将转录文本转换为<strong>音素</strong>，再通过统计方法得到<strong>语速</strong>信息。</p>
-<figure class="highlight python"><table><tr><td class="code"><pre><span class="line">python main.py <span class="string">&quot;your_path/jenny-tts-6h_disk&quot;</span> \</span><br><span class="line">  --configuration <span class="string">&quot;default&quot;</span> \</span><br><span class="line">  --text_column_name <span class="string">&quot;transcription&quot;</span> \</span><br><span class="line">  --audio_column_name <span class="string">&quot;audio&quot;</span> \</span><br><span class="line">  --cpu_num_workers <span class="number">2</span> \</span><br><span class="line">  --rename_column \</span><br><span class="line">  --output_dir <span class="string">&quot;your_path/jenny-tts-tags-6h-v1&quot;</span> \</span><br><span class="line">  --apply_squim_quality_estimation</span><br></pre></td></tr></table></figure>
-<p>此时的数据样本增加以下信息：语段音高（均值，方差）、snr、c50（混响等级）、说话速度、音素。数据保存至<code>your_path/jenny-tts-tags-6h-v1</code>文件夹下，此时文件保存为disk格式，方便后续处理。</p>
-<h3 id="得到用文本描述的音频信息">得到用文本描述的音频信息</h3>
-<p>利用<code>metadata_to_text.py</code>文件，通过统计分桶方法，将统计值转换为有限的文本描述。</p>
-<figure class="highlight python"><table><tr><td class="code"><pre><span class="line">python ./scripts/metadata_to_text.py \</span><br><span class="line">    <span class="string">&quot;your_path/jenny-tts-tags-6h-v1&quot;</span> \</span><br><span class="line">    --output_dir <span class="string">&quot;your_path/jenny-tts-text-tags-6h-v1&quot;</span> \</span><br><span class="line">    --configuration <span class="string">&quot;default&quot;</span> \</span><br><span class="line">    --cpu_num_workers <span class="number">2</span> \</span><br><span class="line">    --path_to_bin_edges <span class="string">&quot;./examples/tags_to_annotations/v02_bin_edges.json&quot;</span> \</span><br><span class="line">    --path_to_text_bins <span class="string">&quot;./examples/tags_to_annotations/v02_text_bins.json&quot;</span> \</span><br><span class="line">    --avoid_pitch_computation \</span><br><span class="line">    --apply_squim_quality_estimation</span><br></pre></td></tr></table></figure>
-<p>此时数据数据样本增加以下信息：语速、噪声、混响和语音单调性的文本描述。数据保存至<code>your_path/jenny-tts-text-tags-6h-v1</code>文件夹下，此时文件保存为disk格式，方便后续处理。</p>
-<h3 id="将离散文本转换为连贯的描述性语句">将离散文本转换为连贯的描述性语句</h3>
-<p>得到google的轻量级大语言模型<code>gemma-2-2b-it</code>通过<code>run_prompt_creation.py</code>文件，将碎片化的语言描述词语转换为连贯的描述性语句。</p>
-<figure class="highlight python"><table><tr><td class="code"><pre><span class="line">python ./scripts/run_prompt_creation.py \</span><br><span class="line">  --speaker_name <span class="string">&quot;Jenny&quot;</span> \</span><br><span class="line">  --is_single_speaker \</span><br><span class="line">  --is_new_speaker_prompt \</span><br><span class="line">  --dataset_name <span class="string">&quot;ylacombe/jenny-tts-text-tags-6h-v1&quot;</span> \</span><br><span class="line">  --output_dir <span class="string">&quot;./tmp_jenny&quot;</span> \</span><br><span class="line">  --dataset_config_name <span class="string">&quot;default&quot;</span> \</span><br><span class="line">  --model_name_or_path <span class="string">&quot;google/gemma-2-2b-it&quot;</span> \</span><br><span class="line">  --per_device_eval_batch_size <span class="number">5</span> \</span><br><span class="line">  --attn_implementation <span class="string">&quot;sdpa&quot;</span> \</span><br><span class="line">  --dataloader_num_workers <span class="number">2</span> \</span><br><span class="line">  --preprocessing_num_workers <span class="number">2</span></span><br></pre></td></tr></table></figure>
-<p>此时数据数据样本增加以下信息：连贯的描述性语句。数据保存至<code>your_path/jenny-tts-text-tags-6h-v1</code>文件夹下，此时文件保存为disk格式，方便后续处理。</p>
-<h2 id="模型训练">模型训练</h2>
-<p>将当前文件夹定位到<code>parler-tts</code>文件夹下</p>
-<figure class="highlight python"><table><tr><td class="code"><pre><span class="line">cd parler-tts</span><br></pre></td></tr></table></figure>
-<p>从huggingface/parler-tts下载得到parler-tts和DAC_44khz预训练模型，使用<code>training/run_parler_tts_training.py</code>进行训练，得到微调后的模型。</p>
-<p>具体为</p>
-<p><strong>1</strong>.  通过<code>Flan-T5</code>模型将描述文本(Description text)和转录文本(Transcript text)映射为hidden states。<br>
-<strong>2</strong>.  将描述文本的hidden states和由转录文本hidden states作为前缀的hidden states作为输入，通过一个语言模型(LM)，自回归生成音频码本矩阵。<br>
-<strong>3</strong>.  将输出的码本矩阵和通过<code>DAC_44khz</code>音频自编码器的预训练模型中<code>Encoder</code>生成的音频码本矩阵进行对比学习，得到一个音频模型。<br>
-<strong>4</strong>.  利用<code>DAC_44khz</code>音频自编码器的预训练模型中的<code>Decoder</code>部分将离散的码本矩阵转换为音频信号。</p>
-<h2 id="总结">总结</h2>
-<p><strong>训练过程分为四个步骤，分别对应上述四个步骤。Parler-TTS模型使用了DAC自编码器和一个高质量的语音数据集， 并且可以在无参考音频的情况下进行训练，利用文本描述和转录文本来生成音频信号。个人理解，在这种情况下进行训练，可以充分利用现有的语言模型，比如项目中使用的gemma-2-2b-it模型，将音频模型转换为语言模型来进行处理。但似乎这样缺少了音频对比学习这一步，相当于在音频标注数据不够情况下的一种妥协，想要进一步提升性能，可能需要更多的音频标注数据。</strong></p>
-]]></content>
-      <categories>
-        <category>语音合成</category>
-      </categories>
-      <tags>
-        <tag>语音合成</tag>
-        <tag>大模型微调</tag>
-        <tag>Linux</tag>
-        <tag>Local</tag>
       </tags>
   </entry>
 </search>
